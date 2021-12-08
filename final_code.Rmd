@@ -1,0 +1,219 @@
+---
+title: "Predicting Fire Burn Occurrences"
+author: ' Lina Nguyen,Cole Bailey,Kevin Stewart'
+date: "12/3/2021"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+
+# Importing packages
+```{r}
+library(tidyverse);library(tidyr);library(zoo);library(zoo);library(xts);library(tseries);library(astsa);library(lubridate);library(ggplot2);library(dplyr);library(fpp2);library(dplyr);library(tsibble);library(tseries);library(forecast);library(sarima);library(fpp2);library(ggplot2)
+
+```
+
+
+#loading the data file and seperating string values
+```{r}
+df_fire <- read.csv("/Users/kevinstewart/Desktop/business_a/san_diego_fire_incident.csv", sep = ",")
+```
+
+
+#viewing data
+```{r}
+head(df_fire)
+```
+# correct colnames & and subsetting data based on year and most occurring problem 
+```{r}
+names(df_fire) <- df_fire %>% slice(1) %>%
+unlist()
+fire <- df_fire %>% slice(-1)
+
+```
+
+# Mutate the data to month response
+```{r}
+fire$problem_count <- as.numeric(fire$problem_count)
+fire$month_response <- as.numeric(fire$month_response)
+fire$year_response <- as.numeric(fire$year_response)
+fire$problem <- as.factor(fire$problem)
+
+########################################
+# verify structure of data 
+str(fire)
+```
+
+
+# Verify the length and dimensions of the data 
+```{r}
+################################
+# Instantiate the variable
+burns_fire <- fire %>%
+  filter(problem == "Burns / Explosion (L3)")
+
+```
+
+
+# Viewing frequency of data
+```{r}
+#############################################
+ggplot(data = fire) + geom_histogram(mapping = aes(x = month_response)) + scale_x_continuous(breaks = scales::pretty_breaks(n = 12)) + ggtitle('Number of Fire And EMS Dispatchment per Month') + xlab('Month') + ylab('Count')
+#############################################
+ggplot(data = fire) + geom_bar(mapping = aes(x = year_response)) + ggtitle("Number of Fire And EMS Dispatchment per Year") + xlab("Year") + ylab("Count") + scale_x_continuous(breaks = scales::pretty_breaks(n = 16))
+##############################################
+ggplot(data = burns_fire) + geom_bar(mapping = aes(x = month_response)) + scale_x_continuous(breaks = scales::pretty_breaks(n = 12)) + ggtitle('Number of Fire Burn And Incidences per Month') + xlab('Month') + ylab('Count')
+################################################
+ggplot(data = burns_fire) + geom_bar(mapping = aes(x = year_response)) + scale_x_continuous(breaks = scales::pretty_breaks(n = 12)) + ggtitle('Number of Fire Burn And Explosions per Year') + xlab('Year') + ylab('Count')
+```
+
+
+# Looking at time series data 
+```{r}
+par(mfrow=c(3:2))
+tsplot(fire[,4], ylab = "", xlab = "", type = "l", main = "Times Series Plot of EMS Incidences", col = 4)
+tsplot(fire[,4], xlab = "year_response", ylab = "Problem Count", main = "Time Series Plot of Fire Burns and Explosions", type = "l", lwd=2, xlim = c(2006, 2021))
+tsplot(fire[,4], xlab = "", ylab = "", main = "Time Series Plot of Problem Count", type = "l", lwd=2, xlim = c(1,612))
+```
+
+# view data by individual fire incidents
+```{r}
+tsplot(burns_fire$month_response, main = "Time Series Plot of Fire Burns And Explosions")
+
+# logging the data graphically
+tsplot(log(burns_fire$month_response), main = "Time Series Plot of Logarithm Fire Burns and Explosions")
+
+# the data shows that there is a there is also seasonality in the data which will need to be removed.
+########################################
+#viewing first variables of the burns month response data 
+head(burns_fire$month_response)
+#####################################
+# graphically displaying month response and problem count
+tsplot(fire$month_response, main = "Time Series Plot of the Month")
+tsplot(fire$problem_count, main = "Time Series Plot of the Month Response and Problem Count")
+```
+
+
+# Declaring data as time series 
+```{r}
+# creating a time series variable
+Y = ts(burns_fire[,4],start = c(2006,1),frequency = 12)
+###############################################
+# create a time series object to check for seasonality 
+ts_fire_b <- ts(burns_fire[,5],start = c(2006,1),frequency = 12)
+
+# Checking seasonality with the seasonal graph 
+ggseasonplot(Y) + ggtitle("Seasonal Plot: Change in Monthly Burn and Explosion Incidents")
+
+###############################################
+ggsubseriesplot(ts_fire_b) +
+  ggtitle("Seasonal Plot: Monthly Seasonal Graph of Fire and Explosion Incidences")+ ylab("Number of Burn Incidents")
+
+#There shows that there is a spike in the winter to spring months and drastic decrease at the start of summer. 
+
+```
+
+
+# Looking at acf and pacf plot to check autocorrelation
+```{r}
+head(acf2(burns_fire$month_response,main =  "ACF and PACF of Monthly Burns and Explosions"))
+#this show a significant amount of correlation in 
+
+```
+
+
+#Differencing the data to obtain stationarity to remove trend and seasonality
+```{r}
+diff_burns <- diff(diff(burns_fire$month_response))
+tsplot(diff_burns)
+# acf and pacf plots
+acf2(diff_burns, main = "ACF and PACF of Differenced Monthly Burns and Explosions")
+```
+
+
+# Trying different AR models to find the best model 
+```{r}
+# Looking at ARIMA (1,1,1) model
+ar1 <- arima(ts_fire_b, order = c(1,1,1))
+ar1
+# AIC of 262.73
+###################################
+# ARIMA (2,0,0)
+ar2 <- arima(ts_fire_b, order = c(2,0,0))
+ar2
+###################################
+# In viewing the data it appears that the data is best with differncing 
+ar3 <- arima(ts_fire_b, order = c(3,0,0))
+ar3
+###################################
+ar4 <- arima(ts_fire_b, order =c(4,0,0))
+ar4
+####################################
+ar5 <- arima(ts_fire_b, order = c(5,0,0))
+ar5
+
+print(ar1);ar2;ar3;ar4;ar5
+####################################
+# It is determined that an ARIMA model of (4,0,0) is the best model for forecasting 
+```
+
+
+# Find the best arima model using a fit arima 
+```{r}
+# Determining best model
+fit_ar <- auto.arima(diff_burns, stepwise = FALSE, approximation = FALSE, trace = TRUE)
+###################################
+# Confirming that an ARIMA (4,0,0) is the best fit model
+```
+
+
+#check residuals for the best model 
+```{r}
+#check residuals using forecast and a lag
+forecast::checkresiduals(fit_ar, lag=12)
+# the best model based on forecasting and checking residuals
+arima(burns_fire$month_response, order = c(4,0,0)) 
+
+# print summary statistics
+checkresiduals(fit_ar)
+print(summary(fit_ar))
+
+#Get the standard deviation
+std <- sqrt(17.64)
+std
+
+```
+
+# In viewing the acf most of all the autocorrelation is removed from the model.
+
+
+# Dickey fuller Test to check for stationarity
+```{r}
+adf.test(diff_burns) 
+#The stationarity is removed according to the dickey fuller test 
+```
+# We would reject the null, shows that we have stationarity.
+
+
+# Using arima to forecast monthly trends of fire incidents in San Diego
+```{r}
+# Forecasting 12 months into the future
+f_cast <- forecast(fit_ar, h=12)
+####################################
+autoplot(f_cast)
+# forecasting to look at most recent data
+autoplot(f_cast, include = 48)
+
+head(print(summary(f_cast)))
+
+```
+
+
+
+
+
+
+
+
